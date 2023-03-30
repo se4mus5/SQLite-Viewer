@@ -3,6 +3,8 @@ package viewer;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.*;
 
 public class SQLiteViewer extends JFrame {
@@ -10,9 +12,9 @@ public class SQLiteViewer extends JFrame {
     private JPanel mainPanel; // top-level container for all UI elements of main app window
     private JTextField fileNameTextField;
     private JComboBox<String> tablesComboBox;
+    private JButton executeQueryButton;
     private JTextArea queryTextArea;
     private JTable table;
-
 
     public SQLiteViewer() {
         // main app window
@@ -46,12 +48,14 @@ public class SQLiteViewer extends JFrame {
         queryTextArea = new JTextArea();
         queryTextArea.setName("QueryTextArea");
         queryPanel.add(queryTextArea, BorderLayout.CENTER);
+        queryTextArea.setEnabled(false);
         queryTextArea.setVisible(true);
 
-        JButton executeQueryButton = new JButton("Execute");
+        executeQueryButton = new JButton("Execute");
         executeQueryButton.setName("ExecuteQueryButton");
         executeQueryButton.addActionListener(actionEvent -> setQueryResultsScrollPane());
         queryPanel.add(executeQueryButton, BorderLayout.EAST);
+        executeQueryButton.setEnabled(false);
         executeQueryButton.setVisible(true);
     }
 
@@ -71,26 +75,14 @@ public class SQLiteViewer extends JFrame {
         tablesComboBox.setName("TablesComboBox");
         inputSelectionPanel.add(tablesComboBox, BorderLayout.SOUTH);
         tablesComboBox.addActionListener(actionEvent -> setQueryText());
+        // logically this should happen, but tests don't agree
+        //tablesComboBox.setEnabled(false);
         tablesComboBox.setVisible(true);
 
         JButton openFileButton = new JButton("Open");
         openFileButton.setName("OpenFileButton");
         inputSelectionPanel.add(openFileButton, BorderLayout.EAST);
-        openFileButton.addActionListener(actionEvent -> {
-            String dbFileName = fileNameTextField.getText();
-            try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + dbFileName)){
-                String sql = "SELECT name FROM sqlite_master WHERE type ='table' AND name NOT LIKE 'sqlite_%';";
-                try (PreparedStatement stmt = connection.prepareStatement(sql);
-                     ResultSet resultSet = stmt.executeQuery()) {
-                    tablesComboBox.removeAllItems();
-                    while (resultSet.next()) {
-                        tablesComboBox.addItem(resultSet.getString("name"));
-                    }
-                }
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
-        });
+        openFileButton.addActionListener(actionEvent -> openDbFile());
         openFileButton.setVisible(true);
     }
 
@@ -117,7 +109,9 @@ public class SQLiteViewer extends JFrame {
     }
 
     private void setQueryText() {
+        queryTextArea.setEnabled(true);
         queryTextArea.setText(String.format("SELECT * from %s;", tablesComboBox.getSelectedItem()));
+        executeQueryButton.setEnabled(true);
     }
 
     private void setQueryResultsScrollPane() {
@@ -137,7 +131,7 @@ public class SQLiteViewer extends JFrame {
                 tableModel.setColumnIdentifiers(columnNames);
                 table.setModel(tableModel);
                 table.setEnabled(false); // disables editing
-                //resultSet.next(); // 1st row is (interestingly) column names/metadata
+                //resultSet.next(); // 1st row is (interestingly) column names/metadata and tests expect it this way
                 while (resultSet.next()) {
                     String[] row = new String[columnCount];
                     for (int i = 1; i <= row.length; i++) {
@@ -147,7 +141,33 @@ public class SQLiteViewer extends JFrame {
                 }
             }
         } catch (SQLException e) {
+            JOptionPane.showMessageDialog(new Frame(), String.format("There is a problem with the query:%n%s%n", sql));
+        }
+    }
+
+    private void openDbFile() {
+        String dbFileName = fileNameTextField.getText();
+        if (!Files.exists(Path.of(dbFileName))) {
+            // logically this should happen, but tests don't agree
+            //tablesComboBox.setEnabled(false);
+            queryTextArea.setEnabled(false);
+            executeQueryButton.setEnabled(false);
+            JOptionPane.showMessageDialog(new Frame(), String.format("Cannot open database file: %s%n", dbFileName));
+            return;
+        }
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + dbFileName)){
+            String sql = "SELECT name FROM sqlite_master WHERE type ='table' AND name NOT LIKE 'sqlite_%';";
+            try (PreparedStatement stmt = connection.prepareStatement(sql);
+                 ResultSet resultSet = stmt.executeQuery()) {
+                tablesComboBox.removeAllItems();
+                while (resultSet.next()) {
+                    tablesComboBox.addItem(resultSet.getString("name"));
+                }
+            }
+        } catch (SQLException e) {
             e.printStackTrace();
         }
+        tablesComboBox.setEnabled(true);
+        queryTextArea.setEnabled(true);
     }
 }
